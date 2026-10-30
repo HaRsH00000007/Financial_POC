@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; }
+  body { @apply bg-ink-50 text-ink-900 font-sans text-sm; }
+  .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1, "cv11" 1; }
+  ::selection { @apply bg-brand-100; }
+  :focus-visible { outline: 2px solid #2a78d6; outline-offset: 2px; border-radius: 4px; }
+}
+
+@layer components {
+  .label-caps { @apply text-2xs font-semibold uppercase tracking-[0.06em] text-ink-500; }
+  .input { @apply w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-sm text-ink-900 shadow-sm placeholder:text-ink-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100; }
+  .scroll-thin::-webkit-scrollbar { height: 8px; width: 8px; }
+  .scroll-thin::-webkit-scrollbar-thumb { @apply rounded-full bg-ink-200; }
+  .skeleton { @apply animate-pulse rounded bg-ink-100; }
+  .md p { @apply mb-2 last:mb-0; }
+  .md ul { @apply mb-2 list-disc space-y-0.5 pl-5; }
+  .md code { @apply rounded bg-ink-100 px-1 py-0.5 font-mono text-[12px] text-ink-800; }
+  .md strong { @apply font-semibold text-ink-950; }
+}
+
+@media print {
+  aside, header, .no-print { display: none !important; }
+  body { background: white; }
+}
