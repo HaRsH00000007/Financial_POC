@@ -1,4 +1,5 @@
 export type Status = "VALID" | "WARNING" | "REVIEW_REQUIRED";
+export type ValueFormat = "currency" | "percent" | "multiple" | "number";
 export type CalcStatus = "DETERMINISTIC" | "INCOMPLETE" | "UNDEFINED";
 
 export interface SourceReference {
@@ -22,13 +23,19 @@ export interface RawRow {
   confidence: number;
   notes: string[];
   sign_flipped: boolean;
+  // annual-report workspaces only
+  statement?: "income_statement" | "balance_sheet" | "cash_flow";
+  section?: string;
+  document_id?: string;
+  note_ref?: string | null;
+  context?: string;
 }
 
 export interface Mapping {
   row_id: string;
   raw_label: string;
   category: string | null;
-  method: "exact_synonym" | "fuzzy_match" | "ai_suggested" | "user_override" | "unmapped";
+  method: "exact_synonym" | "section_rule" | "fuzzy_match" | "ai_suggested" | "user_override" | "unmapped";
   confidence: number;
   status: Status;
   rationale: string;
@@ -84,8 +91,78 @@ export interface CheckSummary {
   total: number;
 }
 
+export interface StatementLocation {
+  page: number;
+  scope: string;
+  method: string;
+  score: number;
+  bm25_rank: number | null;
+  candidates: number[];
+}
+
+export interface ReportDocument {
+  id: string;
+  filename: string;
+  size_bytes: number;
+  sha256: string;
+  pages: number | null;
+  fiscal_years: string[];
+  unit: string;
+  text_engine: string;
+  statements: Record<string, StatementLocation>;
+}
+
+export interface ExposureEntry {
+  at: string;
+  purpose: string;
+  provider: string;
+  model: string;
+  chars: number;
+  pages: { document: string; page: number }[];
+  chunks: string[];
+  preview: string;
+}
+
+export interface Exposure {
+  provider_live: boolean;
+  events: number;
+  chars_shared: number;
+  report_chars_total: number;
+  pages_total: number;
+  pages_shared: number;
+  ledger: ExposureEntry[];
+}
+
+export interface ExternalFact {
+  id: string;
+  text: string;
+  source: string;
+  as_of: string;
+  title: string;
+  provider: string;
+  added_at: string;
+}
+
+export interface ExternalProvider {
+  key: string;
+  name: string;
+  connected: boolean;
+  configured?: boolean;
+  detail: string;
+}
+
+export interface Passage {
+  chunk_id: string;
+  document: string;
+  page: number;
+  kind: string;
+  text: string;
+  score?: number;
+}
+
 export interface Workspace {
   id: string;
+  kind?: "t12" | "annual";
   stage: "extracted" | "normalized" | "validated" | "calculated";
   stale: boolean;
   document: {
@@ -113,6 +190,110 @@ export interface Workspace {
   agent_runs: AgentRun[];
   has_model: boolean;
   llm: LLMInfo;
+  // annual-report workspaces only
+  documents?: ReportDocument[];
+  currency?: string;
+  unit?: string;
+  taxonomy?: Category[];
+  index?: { chunks: number; vocabulary: number; avg_chunk_tokens: number; retriever: string };
+  exposure?: Exposure;
+  external?: ExternalFact[];
+  external_providers?: ExternalProvider[];
+}
+
+export interface Identity {
+  id: string;
+  metric: string;
+  reported_category: string | null;
+  statement: string;
+  period: string;
+  reported: number;
+  computed: number;
+  variance: number;
+  tolerance: number;
+  matches: boolean;
+  name?: string;
+}
+
+export interface Restatement {
+  category: string;
+  name: string;
+  period: string;
+  original_document: string;
+  original: number;
+  restated_document: string;
+  restated: number;
+  difference: number;
+}
+
+export interface AnnualModel {
+  kind: "annual";
+  engine: string;
+  periods: string[];
+  latest: string;
+  prior: string | null;
+  values: Record<string, Record<string, number | null>>;
+  per_period: Record<string, Record<string, CalculationResult>>;
+  identities: Identity[];
+  not_reported: string[];
+  not_printed: Record<string, string[]>;
+  order: string[];
+  restatements: Restatement[];
+}
+
+export interface StatementLine {
+  row_id: string;
+  label: string;
+  section: string;
+  note_ref: string | null;
+  category: string | null;
+  kind: Category["kind"] | null;
+  values: Record<string, number | null>;
+  pages: Record<string, number | null>;
+}
+
+export interface AnnualModelResponse {
+  model: AnnualModel;
+  incomplete: { metric: string; period: string; status: CalcStatus; missing: string[] }[];
+  stale: boolean;
+  entity: string | null;
+  check_summary: CheckSummary;
+  graph: Meta["graph"];
+  formulas: Formula[];
+  statements: Record<"income_statement" | "balance_sheet" | "cash_flow", StatementLine[]>;
+  currency: string;
+  unit: string;
+}
+
+export interface BriefFact {
+  id: string;
+  metric: string;
+  name: string;
+  period: string;
+  value: number | null;
+  display: string;
+  formula_id: string | null;
+}
+
+export interface InsightBrief {
+  entity: string | null;
+  currency: string;
+  unit: string;
+  periods: string[];
+  latest: string;
+  prior: string | null;
+  facts: BriefFact[];
+  trends: { metric: string; name: string; series: { period: string; display: string }[] }[];
+  quality: { id: string; text: string }[];
+  narrative: (Passage & { id: string; topic: string })[];
+  external: { id: string; source: string; as_of: string; title: string; text: string }[];
+  composition: { facts: number; narrative_passages: number; external: number; report_pages_total: number; report_pages_in_brief: number };
+}
+
+export interface Insight {
+  title: string;
+  text: string;
+  refs: string[];
 }
 
 export interface CalcInput {
@@ -186,7 +367,7 @@ export interface LineageNode {
   kind: "derived" | "source" | "t12";
   value: number | null;
   status: CalcStatus | string;
-  format: "currency" | "percent";
+  format: ValueFormat;
   formula?: {
     formula_id: string;
     name: string;
@@ -240,6 +421,10 @@ export interface Commentary {
   generated_at: string;
   label: string;
   disclaimer: string;
+  // annual-report workspaces only
+  insights?: Insight[];
+  source?: string;
+  brief?: InsightBrief;
 }
 
 export interface ToolCall {
@@ -255,6 +440,7 @@ export interface AssistantReply {
   provider: string;
   note: string | null;
   disclaimer: string;
+  citations?: Passage[];
 }
 
 export interface Category {
@@ -273,7 +459,7 @@ export interface Formula {
   expression: string;
   inputs: string[];
   optional_inputs: string[];
-  output_format: "currency" | "percent";
+  output_format: ValueFormat;
   description: string;
 }
 

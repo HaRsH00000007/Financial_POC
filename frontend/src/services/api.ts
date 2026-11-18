@@ -1,5 +1,9 @@
 import type {
+  AnnualModelResponse,
   AssistantReply,
+  Exposure,
+  InsightBrief,
+  Passage,
   AuditEvent,
   Commentary,
   EvalFramework,
@@ -44,11 +48,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Upload with real progress events (fetch has no upload progress). */
 function uploadWithProgress(file: File, onProgress: (pct: number) => void): Promise<Workspace> {
+  return postForm("/workspaces/upload", [["file", file]], onProgress);
+}
+
+function postForm(path: string, fields: [string, File][], onProgress: (pct: number) => void): Promise<Workspace> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const form = new FormData();
-    form.append("file", file);
-    xhr.open("POST", `${BASE}/workspaces/upload`);
+    fields.forEach(([k, f]) => form.append(k, f));
+    xhr.open("POST", `${BASE}${path}`);
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(Math.round((e.loaded / e.total) * 100));
     xhr.onload = () => {
       let body: any = null;
@@ -72,7 +80,19 @@ export const api = {
 
   demo: (fmt: "pdf" | "xlsx" | "csv" = "pdf") => request<Workspace>(`/workspaces/demo?fmt=${fmt}`, { method: "POST" }),
   upload: uploadWithProgress,
+  uploadAnnual: (files: File[], onProgress: (pct: number) => void) =>
+    postForm("/workspaces/annual", files.map((f) => ["files", f] as [string, File]), onProgress),
   workspace: (id: string) => request<Workspace>(`/workspaces/${id}`),
+  annualModel: (id: string) => request<AnnualModelResponse>(`/workspaces/${id}/model`),
+  annualCalculate: (id: string) => request<AnnualModelResponse>(`/workspaces/${id}/calculate`, { method: "POST" }),
+  insights: (id: string, narrative = true) => request<Commentary>(`/workspaces/${id}/commentary?narrative=${narrative}`, { method: "POST" }),
+  brief: (id: string, narrative = true) =>
+    request<{ brief: InsightBrief; exposure: Exposure }>(`/workspaces/${id}/brief?narrative=${narrative}`),
+  search: (id: string, q: string, k = 5) =>
+    request<{ query: string; retriever: string; passages: Passage[] }>(`/workspaces/${id}/search?q=${encodeURIComponent(q)}&k=${k}`),
+  addExternal: (id: string, facts: { text: string; source: string; as_of?: string; title?: string }[]) =>
+    request<Workspace>(`/workspaces/${id}/external`, { method: "POST", body: JSON.stringify({ facts }) }),
+  removeExternal: (id: string, factId: string) => request<Workspace>(`/workspaces/${id}/external/${factId}`, { method: "DELETE" }),
   updateMappings: (id: string, updates: { row_id: string; category: string | null }[]) =>
     request<Workspace>(`/workspaces/${id}/mappings`, { method: "PUT", body: JSON.stringify(updates) }),
   addResolution: (id: string, body: Record<string, unknown>) =>

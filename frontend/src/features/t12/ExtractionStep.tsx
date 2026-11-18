@@ -5,6 +5,7 @@ import { Callout } from "@/components/Feedback";
 import { LayerTag, StatusBadge } from "@/components/StatusBadge";
 import { bytes, periodLabel } from "@/lib/format";
 import type { Workspace } from "@/types";
+import { SourcesCard } from "@/features/annual/SourcesCard";
 import { AgentTimeline } from "./AgentTimeline";
 
 export function locationSummary(ws: Workspace, rowId: string): string {
@@ -12,6 +13,7 @@ export function locationSummary(ws: Workspace, rowId: string): string {
   if (!row) return "—";
   const srcs = Object.values(row.sources);
   const pages = [...new Set(srcs.map((s) => s.page).filter(Boolean))] as number[];
+  if (row.document_id && pages.length) return `${row.document_id} p. ${pages[0]}`;
   if (pages.length) return pages.length > 1 ? `pp. ${Math.min(...pages)}–${Math.max(...pages)}` : `p. ${pages[0]}`;
   const first = srcs[0];
   if (first?.sheet) {
@@ -24,6 +26,23 @@ export function locationSummary(ws: Workspace, rowId: string): string {
 
 export function DocumentCard({ ws }: { ws: Workspace }) {
   const d = ws.document;
+  if (ws.kind === "annual" && ws.documents) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-ink-500" />
+          <span className="font-medium text-ink-900">{ws.documents.length} annual report{ws.documents.length > 1 ? "s" : ""}</span>
+        </div>
+        <span className="text-ink-500">{ws.documents.map((x) => x.filename).join(" · ")}</span>
+        <span className="text-ink-500">
+          Entity: <span className="text-ink-800">{ws.entity ?? "—"}</span>
+        </span>
+        <span className="text-ink-500">
+          {ws.periods.length ? `${periodLabel(ws.periods[0])} – ${periodLabel(ws.periods[ws.periods.length - 1])}` : ""} · ₹ {ws.unit}
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
       <div className="flex items-center gap-2">
@@ -42,12 +61,13 @@ export function DocumentCard({ ws }: { ws: Workspace }) {
 
 export function ExtractionStep({ ws, onNext }: { ws: Workspace; onNext: () => void }) {
   const periods = ws.periods;
+  const annual = ws.kind === "annual";
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
       <Card className="min-w-0">
         <CardHeader
           title="AI Extraction"
-          subtitle={`${ws.rows.length} line items across ${periods.length} monthly periods (${periods[0] ? periodLabel(periods[0]) : "—"} – ${periods.length ? periodLabel(periods[periods.length - 1]) : "—"})`}
+          subtitle={`${ws.rows.length} line items across ${periods.length} ${annual ? "fiscal years" : "monthly periods"} (${periods[0] ? periodLabel(periods[0]) : "—"} – ${periods.length ? periodLabel(periods[periods.length - 1]) : "—"})`}
           actions={<LayerTag layer="probabilistic" />}
         />
         <div className="border-b border-ink-100 px-4 py-2.5">
@@ -77,13 +97,18 @@ export function ExtractionStep({ ws, onNext }: { ws: Workspace; onNext: () => vo
             <tbody className="divide-y divide-ink-100">
               {ws.rows.map((r) => {
                 const vals = Object.values(r.values);
-                const missing = periods.filter((p) => r.values[p] === null || r.values[p] === undefined).length;
+                // Annual rows only cover their own report's years; T-12 rows cover every period.
+                const rowPeriods = annual ? Object.keys(r.values) : periods;
+                const missing = rowPeriods.filter((p) => r.values[p] === null || r.values[p] === undefined).length;
                 const conf = Object.values(r.sources).filter((s) => s.confidence > 0);
                 const avg = conf.length ? conf.reduce((a, s) => Math.min(a, s.confidence), 1) : 0;
                 return (
                   <tr key={r.id} className="hover:bg-ink-50/70">
                     <td className="px-4 py-2 font-mono text-[11px] text-ink-400">{r.id}</td>
-                    <td className="px-2 py-2 text-ink-900">{r.label}</td>
+                    <td className="px-2 py-2 text-ink-900">
+                      {r.label}
+                      {r.context && <div className="text-[11px] text-ink-400">{r.context}</div>}
+                    </td>
                     <td className="px-2 py-2 font-mono text-[11.5px] text-ink-600">{locationSummary(ws, r.id)}</td>
                     <td className="num px-2 py-2 text-right text-ink-700">{vals.length - missing}</td>
                     <td className="num px-2 py-2 text-right">{missing ? <span className="font-medium text-risk-700">{missing}</span> : <span className="text-ink-400">0</span>}</td>
@@ -104,11 +129,16 @@ export function ExtractionStep({ ws, onNext }: { ws: Workspace; onNext: () => vo
         </div>
         {!ws.rows.length && (
           <div className="p-4">
-            <Callout tone="warn">No monthly line items were found. The extractor looks for a header row with at least two month columns (e.g. "Jan 2026").</Callout>
+            <Callout tone="warn">
+              {annual
+                ? "No statement lines were found. The locator looks for the consolidated Balance Sheet, Statement of Profit and Loss and Cash Flow Statement."
+                : 'No monthly line items were found. The extractor looks for a header row with at least two month columns (e.g. "Jan 2026").'}
+            </Callout>
           </div>
         )}
       </Card>
       <div className="space-y-4">
+        {annual && <SourcesCard ws={ws} />}
         <Card>
           <CardHeader title="Agent activity" subtitle="Coordinator → specialists, recorded to the audit log" />
           <div className="p-4">

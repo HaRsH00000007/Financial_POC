@@ -12,6 +12,7 @@ import { locationSummary } from "./ExtractionStep";
 
 const METHOD: Record<Mapping["method"], { label: string; cls: string }> = {
   exact_synonym: { label: "Exact synonym", cls: "bg-ink-100 text-ink-700" },
+  section_rule: { label: "Section rule", cls: "bg-brand-50 text-brand-700" },
   fuzzy_match: { label: "Fuzzy match", cls: "bg-warn-50 text-warn-700" },
   ai_suggested: { label: "AI suggested", cls: "bg-ai-50 text-ai-700" },
   user_override: { label: "Reviewer", cls: "bg-ok-50 text-ok-700" },
@@ -25,13 +26,35 @@ const KIND_LABEL: Record<Category["kind"], string> = {
   excluded: "Exclude",
 };
 
-export function CategorySelect({ value, onChange, disabled }: { value: string | null; onChange: (v: string | null) => void; disabled?: boolean }) {
+const ANNUAL_KIND_LABEL: Record<Category["kind"], string> = {
+  input: "Formula inputs",
+  reported_subtotal: "Printed subtotals (reconciliation only)",
+  memo: "Memo lines (shown, not used in formulas)",
+  excluded: "Exclude",
+};
+
+export function CategorySelect({
+  value,
+  onChange,
+  disabled,
+  taxonomy,
+  statement,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+  disabled?: boolean;
+  taxonomy?: Category[];
+  statement?: string;
+}) {
   const { meta } = useMeta();
+  const labels = taxonomy ? ANNUAL_KIND_LABEL : KIND_LABEL;
   const groups = useMemo(() => {
     const g: Record<string, Category[]> = {};
-    (meta?.taxonomy ?? []).forEach((c) => (g[c.kind] ??= []).push(c));
+    (taxonomy ?? meta?.taxonomy ?? [])
+      .filter((c) => !statement || c.statement === statement || c.statement === "none")
+      .forEach((c) => (g[c.kind] ??= []).push(c));
     return g;
-  }, [meta]);
+  }, [meta, taxonomy, statement]);
   return (
     <select
       className={clsx("input h-8 py-0 pr-7 text-[13px]", !value && "border-risk-100 text-risk-700")}
@@ -40,9 +63,9 @@ export function CategorySelect({ value, onChange, disabled }: { value: string | 
       onChange={(e) => onChange(e.target.value || null)}
     >
       <option value="">— Unmapped —</option>
-      {(Object.keys(KIND_LABEL) as Category["kind"][]).map((k) =>
+      {(Object.keys(labels) as Category["kind"][]).map((k) =>
         groups[k] ? (
-          <optgroup key={k} label={KIND_LABEL[k]}>
+          <optgroup key={k} label={labels[k]}>
             {groups[k].map((c) => (
               <option key={c.key} value={c.key}>
                 {c.name}
@@ -60,7 +83,9 @@ export function NormalizationStep({ ws, setWs, onNext }: { ws: Workspace; setWs:
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { meta } = useMeta();
-  const catName = (k: string | null) => meta?.taxonomy.find((c) => c.key === k)?.name ?? k ?? "—";
+  const taxonomy = ws.taxonomy ?? meta?.taxonomy ?? [];
+  const catName = (k: string | null) => taxonomy.find((c) => c.key === k)?.name ?? k ?? "—";
+  const rowOf = (id: string) => ws.rows.find((r) => r.id === id);
 
   const mappings = ws.rows.map((r) => ws.mappings[r.id]);
   const shown = filter === "all" ? mappings : mappings.filter((m) => m.status !== "VALID");
@@ -135,6 +160,7 @@ export function NormalizationStep({ ws, setWs, onNext }: { ws: Workspace; setWs:
                 <tr key={m.row_id} className={clsx("align-top hover:bg-ink-50/60", m.status === "REVIEW_REQUIRED" && "bg-risk-50/30")}>
                   <td className="px-4 py-2.5">
                     <div className="text-ink-900">{m.raw_label}</div>
+                    {rowOf(m.row_id)?.context && <div className="text-[11px] text-ink-400">{rowOf(m.row_id)?.context}</div>}
                     <div className="mt-0.5 max-w-[320px] text-[11.5px] leading-snug text-ink-500">{m.rationale}</div>
                     {m.alternatives.length > 0 && m.method !== "exact_synonym" && m.method !== "user_override" && (
                       <div className="mt-1 flex flex-wrap gap-1">
@@ -153,7 +179,13 @@ export function NormalizationStep({ ws, setWs, onNext }: { ws: Workspace; setWs:
                   <td className="px-2 py-2.5 font-mono text-[11.5px] text-ink-500">{locationSummary(ws, m.row_id)}</td>
                   <td className="px-2 py-2">
                     <div className="flex items-center gap-1.5">
-                      <CategorySelect value={m.category} onChange={(v) => update(m.row_id, v)} disabled={pending === m.row_id} />
+                      <CategorySelect
+                        value={m.category}
+                        onChange={(v) => update(m.row_id, v)}
+                        disabled={pending === m.row_id}
+                        taxonomy={ws.taxonomy}
+                        statement={rowOf(m.row_id)?.statement}
+                      />
                       {pending === m.row_id && <Loader2 className="h-3.5 w-3.5 animate-spin text-ink-400" />}
                     </div>
                   </td>
@@ -167,7 +199,7 @@ export function NormalizationStep({ ws, setWs, onNext }: { ws: Workspace; setWs:
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
                       <StatusBadge kind={m.status} size="xs" />
-                      {(m.method === "fuzzy_match" || m.method === "ai_suggested") && (
+                        {(m.method === "fuzzy_match" || m.method === "ai_suggested") && (
                         <button onClick={() => update(m.row_id, m.category)} className="text-[11px] font-medium text-brand-600 hover:underline">
                           Confirm
                         </button>

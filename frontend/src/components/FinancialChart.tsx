@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { money, pct, periodLabel } from "@/lib/format";
+import { currencyLabel, money, pct, periodLabel } from "@/lib/format";
 
 // Validated categorical slots (reference palette, light mode): blue, orange, aqua.
 export const SERIES = ["#2a78d6", "#eb6834", "#1baf7a"];
@@ -43,7 +43,12 @@ function ChartTooltip({ active, payload, label, format }: any) {
   );
 }
 
-const tickMoney = (v: number) => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : `$${Math.round(v / 1e3)}K`);
+const tickMoney = (v: number) =>
+  currencyLabel() !== "USD"
+    ? `${v < 0 ? "-" : ""}₹${Math.abs(v) >= 1e5 ? `${(Math.abs(v) / 1e5).toFixed(1)}L` : `${Math.round(Math.abs(v) / 1e3)}K`}`
+    : Math.abs(v) >= 1e6
+      ? `$${(v / 1e6).toFixed(1)}M`
+      : `$${Math.round(v / 1e3)}K`;
 
 /** Single-series monthly bars. Missing (INCOMPLETE) months render as a dashed placeholder. */
 export function MonthlyBarChart({

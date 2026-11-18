@@ -5,6 +5,7 @@ import {
   Cpu,
   FunctionSquare,
   LayoutGrid,
+  Library,
   Menu,
   Scale,
   Sparkles,
@@ -20,6 +21,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 const NAV = [
   { to: "/", label: "Workbench", icon: LayoutGrid, end: true },
   { to: "/t12", label: "T-12 Spreading", icon: TableProperties },
+  { to: "/annual", label: "Annual Reports (RAG)", icon: Library },
   { to: "/evaluation", label: "AI Accounting Evaluation", icon: Scale },
   { section: "Platform" },
   { to: "/formulas", label: "Formula Registry", icon: FunctionSquare },
@@ -28,6 +30,7 @@ const NAV = [
 
 const CRUMBS: Record<string, string> = {
   t12: "Deterministic T-12 Financial Spreading",
+  annual: "Annual Report Analysis",
   evaluation: "Enterprise AI Accounting Evaluation",
   formulas: "Formula Registry",
   architecture: "Hybrid AI Architecture",

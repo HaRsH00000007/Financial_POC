@@ -19,6 +19,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/t12" element={<T12Workspace />} />
+            <Route path="/annual" element={<T12Workspace key="annual" />} />
             <Route path="/evaluation" element={<EvaluationWorkspace />} />
             <Route path="/formulas" element={<FormulaRegistry />} />
             <Route path="/architecture" element={<Architecture />} />

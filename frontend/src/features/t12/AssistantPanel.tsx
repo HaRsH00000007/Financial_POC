@@ -21,7 +21,28 @@ interface Msg {
   error?: boolean;
 }
 
-export function AssistantPanel({ workspaceId, onClose }: { workspaceId: string; onClose: () => void }) {
+export const ANNUAL_SUGGESTIONS = [
+  "What was EBITDA in FY2026?",
+  "Show me the calculation for net debt",
+  "What is the revenue trend over the years?",
+  "What does management say about the outlook?",
+  "What are the key risks for the business?",
+  "Which numbers were restated?",
+];
+
+export function AssistantPanel({
+  workspaceId,
+  onClose,
+  suggestions = SUGGESTIONS,
+  placeholder = "Ask about the T-12 model…",
+  rag = false,
+}: {
+  workspaceId: string;
+  onClose: () => void;
+  suggestions?: string[];
+  placeholder?: string;
+  rag?: boolean;
+}) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -56,7 +77,9 @@ export function AssistantPanel({ workspaceId, onClose }: { workspaceId: string; 
           </div>
           <div>
             <div className="text-[13px] font-semibold text-ink-950">Finance assistant</div>
-            <div className="text-[11px] text-ink-500">Answers via deterministic tools · never computes</div>
+            <div className="text-[11px] text-ink-500">
+              {rag ? "Engine tools + retrieval over the reports · never computes" : "Answers via deterministic tools · never computes"}
+            </div>
           </div>
         </div>
         <button onClick={onClose} className="rounded p-1 text-ink-500 hover:bg-ink-100" aria-label="Close assistant">
@@ -71,10 +94,11 @@ export function AssistantPanel({ workspaceId, onClose }: { workspaceId: string; 
               <div className="mb-1 font-semibold text-ink-800">How this works</div>
               LLM → calls deterministic data &amp; calculation functions → receives verified results → explains them. Every figure in an answer is checked against the
               tool results before it is shown.
+              {rag && " Qualitative questions retrieve the most relevant report passages (cited by page); only those passages reach the model."}
             </div>
             <div className="label-caps mb-2 mt-4">Try asking</div>
             <div className="flex flex-col gap-1.5">
-              {SUGGESTIONS.map((s) => (
+              {suggestions.map((s) => (
                 <button key={s} onClick={() => ask(s)} className="rounded-md border border-ink-200 px-3 py-2 text-left text-[13px] text-ink-700 hover:border-ai-600/40 hover:bg-ai-50">
                   {s}
                 </button>
@@ -113,7 +137,7 @@ export function AssistantPanel({ workspaceId, onClose }: { workspaceId: string; 
         }}
       >
         <div className="flex items-center gap-2">
-          <input className="input" placeholder="Ask about the T-12 model…" value={input} onChange={(e) => setInput(e.target.value)} disabled={busy} />
+          <input className="input" placeholder={placeholder} value={input} onChange={(e) => setInput(e.target.value)} disabled={busy} />
           <button type="submit" disabled={busy || !input.trim()} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-ai-600 text-white disabled:opacity-40" aria-label="Send">
             <Send className="h-4 w-4" />
           </button>
@@ -145,6 +169,16 @@ function ReplyMeta({ reply }: { reply: AssistantReply }) {
               {t.tool}({Object.entries(t.args ?? {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ")})
             </div>
           ))}
+          {(reply.citations ?? []).length > 0 && (
+            <div className="space-y-1 pt-1 font-sans">
+              <div className="text-ink-500">Retrieved passages shown to the model:</div>
+              {reply.citations!.map((c) => (
+                <div key={c.chunk_id} className="text-ink-600">
+                  {c.document} · p.{c.page}
+                </div>
+              ))}
+            </div>
+          )}
           <div className="pt-1 font-sans text-ink-400">Provider: {reply.provider}</div>
           {reply.note && <div className="font-sans text-warn-700">{reply.note}</div>}
         </div>

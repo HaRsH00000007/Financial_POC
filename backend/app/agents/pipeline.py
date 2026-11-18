@@ -39,6 +39,10 @@ LAYER = {
     "Validation Agent": "deterministic",
     "Calculation Agent": "deterministic",
     "Synthesis Agent": "probabilistic",
+    # annual-report pipeline (app/annual/pipeline.py)
+    "Retrieval Agent": "deterministic",
+    "Extraction Agent": "deterministic",
+    "Insight Agent": "probabilistic",
 }
 
 

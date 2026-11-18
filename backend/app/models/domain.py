@@ -73,7 +73,7 @@ class NormalizedCategory(BaseModel):
     key: str
     name: str
     kind: Literal["input", "reported_subtotal", "memo", "excluded"]
-    statement: Literal["income_statement", "balance_sheet", "none"] = "income_statement"
+    statement: Literal["income_statement", "balance_sheet", "cash_flow", "none"] = "income_statement"
     description: str = ""
     synonyms: list[str] = []
 
@@ -82,7 +82,7 @@ class Mapping(BaseModel):
     row_id: str
     raw_label: str
     category: Optional[str]          # canonical key, None = unmapped
-    method: Literal["exact_synonym", "fuzzy_match", "ai_suggested", "user_override", "unmapped"]
+    method: Literal["exact_synonym", "section_rule", "fuzzy_match", "ai_suggested", "user_override", "unmapped"]
     confidence: float
     status: Status
     rationale: str = ""

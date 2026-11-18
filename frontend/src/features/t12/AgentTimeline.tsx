@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Bot, Brain, Calculator, CheckCircle2, ClipboardCheck, FileSearch, Network, XCircle } from "lucide-react";
+import { Bot, Brain, Calculator, CheckCircle2, ClipboardCheck, FileSearch, Network, Search, XCircle } from "lucide-react";
 import { LayerTag } from "@/components/StatusBadge";
 import type { AgentRun } from "@/types";
 
@@ -10,6 +10,9 @@ const ICONS: Record<string, any> = {
   "Validation Agent": ClipboardCheck,
   "Calculation Agent": Calculator,
   "Synthesis Agent": Bot,
+  "Retrieval Agent": Search,
+  "Extraction Agent": FileSearch,
+  "Insight Agent": Bot,
 };
 
 function summarize(run: AgentRun): string {
@@ -24,7 +27,13 @@ function summarize(run: AgentRun): string {
     case "Validation Agent":
       return `${o.counts?.VALID ?? 0} valid · ${o.counts?.WARNING ?? 0} warnings · ${o.counts?.REVIEW_REQUIRED ?? 0} require review`;
     case "Calculation Agent":
+      if (o.identity_checks !== undefined)
+        return `${o.formulas_evaluated} formula results · ${o.identity_checks - o.identity_breaks}/${o.identity_checks} identity checks pass · ${o.restatements} restatements · LLM involved: no`;
       return `${o.formulas_evaluated} formula results · ${o.reconciliation_breaks} reconciliation breaks · ${o.incomplete_values} incomplete · LLM involved: no`;
+    case "Retrieval Agent":
+      return `${o.index?.chunks ?? 0} chunks indexed (${o.index?.retriever ?? "BM25"}) · ${(o.reports ?? []).length} report(s) · statements located`;
+    case "Extraction Agent":
+      return `${o.rows} line items · ${(o.periods ?? []).join(", ")} · ${o.issues} issue(s)${o.entity ? ` · ${o.entity}` : ""}`;
     case "Synthesis Agent":
       return `${o.provider} · figures verified ${o.numeric_check?.verified}/${o.numeric_check?.checked}`;
     default:

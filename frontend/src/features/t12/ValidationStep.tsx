@@ -72,7 +72,7 @@ export function ValidationStep({
                     <div className="font-medium text-ink-900">
                       {r.type === "value"
                         ? `${ws.rows.find((x) => x.id === r.row_id)?.label} · ${periodLabel(r.period!)} = ${money(r.value)}`
-                        : `${r.category} attested as zero`}
+                        : `${ws.taxonomy?.find((t) => t.key === r.category)?.name ?? r.category} attested as zero`}
                     </div>
                     <div className="text-ink-500">“{r.note}”</div>
                   </div>
@@ -183,15 +183,15 @@ function CheckRow({ c, ws, setWs, goNormalize }: { c: ValidationCheck; ws: Works
       {expanded && (
         <div className="ml-[88px] mt-2 space-y-2 max-sm:ml-0">
           <p className="text-xs leading-relaxed text-ink-600">{c.detail}</p>
-          {c.check === "reconciliation" && c.evidence.length > 0 && (
+          {(c.check === "reconciliation" || c.check === "restatement") && c.evidence.length > 0 && (
             <div className="overflow-x-auto rounded-md border border-ink-200">
               <table className="w-full text-xs">
                 <thead className="bg-ink-50 text-left text-[10.5px] uppercase text-ink-500">
                   <tr>
                     <th className="px-2 py-1 font-medium">Period</th>
-                    <th className="px-2 py-1 text-right font-medium">Printed in source</th>
-                    <th className="px-2 py-1 text-right font-medium">Engine recomputed</th>
-                    <th className="px-2 py-1 text-right font-medium">Variance</th>
+                    <th className="px-2 py-1 text-right font-medium">{c.check === "restatement" ? "Earlier report" : "Printed in source"}</th>
+                    <th className="px-2 py-1 text-right font-medium">{c.check === "restatement" ? "Later report (used)" : "Engine recomputed"}</th>
+                    <th className="px-2 py-1 text-right font-medium">{c.check === "restatement" ? "Difference" : "Variance"}</th>
                   </tr>
                 </thead>
                 <tbody className="num divide-y divide-ink-100">
@@ -200,7 +200,7 @@ function CheckRow({ c, ws, setWs, goNormalize }: { c: ValidationCheck; ws: Works
                       <td className="px-2 py-1">{periodLabel(e.period)}</td>
                       <td className="px-2 py-1 text-right">{plain(e.reported)}</td>
                       <td className="px-2 py-1 text-right">{plain(e.computed)}</td>
-                      <td className="px-2 py-1 text-right font-medium text-warn-700">{plain(e.variance)}</td>
+                      <td className={clsx("px-2 py-1 text-right font-medium", c.status === "VALID" ? "text-ok-700" : "text-warn-700")}>{plain(e.variance)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -236,7 +236,13 @@ function CheckRow({ c, ws, setWs, goNormalize }: { c: ValidationCheck; ws: Works
           {c.check === "unmapped" && c.row_id && (
             <div className="flex flex-wrap items-center gap-2">
               <div className="w-64">
-                <CategorySelect value={null} onChange={(v) => act(() => api.updateMappings(ws.id, [{ row_id: c.row_id!, category: v }]))} disabled={busy} />
+                <CategorySelect
+                  value={null}
+                  onChange={(v) => act(() => api.updateMappings(ws.id, [{ row_id: c.row_id!, category: v }]))}
+                  disabled={busy}
+                  taxonomy={ws.taxonomy}
+                  statement={row?.statement}
+                />
               </div>
               <Button size="sm" variant="ghost" onClick={goNormalize}>
                 Open in Normalization

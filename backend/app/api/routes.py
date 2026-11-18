@@ -8,6 +8,14 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.agents import pipeline
+from app.annual import assistant as annual_assistant
+from app.annual import engine as annual_engine
+from app.annual import external as annual_external
+from app.annual import insights as annual_insights
+from app.annual import lineage as annual_lineage
+from app.annual import pipeline as annual
+from app.annual.rag import passage
+from app.annual.workspace import AnnualWorkspace
 from app.audit.lineage import build_lineage
 from app.calculations.formulas import ALL_FORMULAS, dependency_graph
 from app.data.demo import SAMPLES
@@ -19,20 +27,32 @@ from app.services.workspace import STORE, Workspace, incomplete_metrics, summari
 
 router = APIRouter(prefix="/api")
 MAX_UPLOAD = 20 * 1024 * 1024
+MAX_ANNUAL_FILE = 40 * 1024 * 1024
+MAX_ANNUAL_TOTAL = 120 * 1024 * 1024
 
 
-def _ws(ws_id: str) -> Workspace:
+def _ws(ws_id: str) -> Workspace | AnnualWorkspace:
     ws = STORE.get(ws_id)
     if not ws:
         raise HTTPException(404, "Workspace not found (the POC keeps state in memory; restart clears it).")
     return ws
 
 
-def serialize(ws: Workspace) -> dict:
+def _annual(ws_id: str) -> AnnualWorkspace:
+    ws = _ws(ws_id)
+    if not isinstance(ws, AnnualWorkspace):
+        raise HTTPException(400, "This endpoint is only available for annual-report workspaces.")
+    return ws
+
+
+def serialize(ws: Workspace | AnnualWorkspace) -> dict:
+    if isinstance(ws, AnnualWorkspace):
+        return annual.serialize(ws)
     ex = ws.extraction
     cat_vals = ws.category_values()
     return {
         "id": ws.id,
+        "kind": "t12",
         "stage": ws.stage,
         "stale": ws.stale,
         "document": ws.document.model_dump(),
@@ -111,6 +131,29 @@ async def upload(file: UploadFile = File(...)) -> dict:
     return serialize(ws)
 
 
+@router.post("/workspaces/annual")
+async def upload_annual(files: list[UploadFile] = File(...)) -> dict:
+    payload: list[tuple[bytes, str]] = []
+    total = 0
+    for f in files:
+        data = await f.read()
+        if not data:
+            raise HTTPException(400, f'"{f.filename}" is empty')
+        if len(data) > MAX_ANNUAL_FILE:
+            raise HTTPException(413, f'"{f.filename}" exceeds the 40 MB per-report limit')
+        total += len(data)
+        payload.append((data, f.filename or f"report-{len(payload) + 1}.pdf"))
+    if total > MAX_ANNUAL_TOTAL:
+        raise HTTPException(413, "Reports exceed the 120 MB total limit")
+    try:
+        ws = annual.ingest_reports(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(422, f"Could not read the report(s): {exc}")
+    return serialize(ws)
+
+
 @router.get("/workspaces/{ws_id}")
 def get_workspace(ws_id: str) -> dict:
     return serialize(_ws(ws_id))
@@ -128,7 +171,10 @@ def update_mappings(ws_id: str, updates: list[MappingUpdate]) -> dict:
         if u.row_id not in ws.mappings:
             raise HTTPException(400, f"Unknown row {u.row_id}")
         try:
-            pipeline.update_mapping(ws, u.row_id, u.category)
+            if isinstance(ws, AnnualWorkspace):
+                annual.update_mapping(ws, u.row_id, u.category)
+            else:
+                pipeline.update_mapping(ws, u.row_id, u.category)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
     return serialize(ws)
@@ -147,7 +193,7 @@ class ResolutionIn(BaseModel):
 def add_resolution(ws_id: str, body: ResolutionIn) -> dict:
     ws = _ws(ws_id)
     try:
-        pipeline.add_resolution(ws, body.model_dump())
+        (annual if isinstance(ws, AnnualWorkspace) else pipeline).add_resolution(ws, body.model_dump())
     except (ValueError, KeyError) as exc:
         raise HTTPException(400, str(exc))
     return serialize(ws)
@@ -157,7 +203,7 @@ def add_resolution(ws_id: str, body: ResolutionIn) -> dict:
 def delete_resolution(ws_id: str, res_id: str) -> dict:
     ws = _ws(ws_id)
     try:
-        pipeline.remove_resolution(ws, res_id)
+        (annual if isinstance(ws, AnnualWorkspace) else pipeline).remove_resolution(ws, res_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc))
     return serialize(ws)
@@ -168,7 +214,7 @@ def calculate(ws_id: str) -> dict:
     ws = _ws(ws_id)
     if not ws.extraction.periods:
         raise HTTPException(400, "No periods extracted - nothing to calculate.")
-    pipeline.calculate(ws)
+    (annual if isinstance(ws, AnnualWorkspace) else pipeline).calculate(ws)
     return get_model(ws_id)
 
 
@@ -177,6 +223,12 @@ def get_model(ws_id: str) -> dict:
     ws = _ws(ws_id)
     if ws.model is None:
         raise HTTPException(409, "Model not calculated yet")
+    if isinstance(ws, AnnualWorkspace):
+        return {"model": ws.model, "incomplete": annual_engine.incomplete(ws.model), "stale": ws.stale,
+                "is_demo": False, "entity": ws.extraction.entity_name, "check_summary": summarize_checks(ws.checks),
+                "graph": annual_engine.graph(),
+                "formulas": [f.model_dump() for f in annual_engine.FORMULAS.values()],
+                "statements": annual.statement_rows(ws), "currency": ws.currency, "unit": ws.unit}
     return {"model": ws.model, "incomplete": incomplete_metrics(ws.model), "stale": ws.stale,
             "is_demo": ws.document.is_demo, "entity": ws.extraction.entity_name,
             "check_summary": summarize_checks(ws.checks)}
@@ -188,6 +240,8 @@ def lineage(ws_id: str, metric: str, period: str = "T12") -> dict:
     if ws.model is None:
         raise HTTPException(409, "Model not calculated yet")
     try:
+        if isinstance(ws, AnnualWorkspace):
+            return annual_lineage.build_lineage(ws, metric, period)
         return build_lineage(ws, metric, period)
     except KeyError as exc:
         raise HTTPException(404, f"No lineage for {metric} / {period}: {exc}")
@@ -200,11 +254,58 @@ def audit(ws_id: str) -> dict:
 
 
 @router.post("/workspaces/{ws_id}/commentary")
-def commentary(ws_id: str) -> dict:
+def commentary(ws_id: str, narrative: bool = True) -> dict:
     ws = _ws(ws_id)
     if ws.model is None:
         raise HTTPException(409, "Run the deterministic calculation first")
+    if isinstance(ws, AnnualWorkspace):
+        return annual_insights.generate(ws, include_narrative=narrative)
     return pipeline.synthesize(ws)
+
+
+# --------------------------- Annual-report extras --------------------------- #
+@router.get("/workspaces/{ws_id}/brief")
+def insight_brief(ws_id: str, narrative: bool = True) -> dict:
+    ws = _annual(ws_id)
+    if ws.model is None:
+        raise HTTPException(409, "Run the deterministic calculation first")
+    return {"brief": annual_insights.build_brief(ws, narrative), "exposure": annual.exposure_summary(ws)}
+
+
+@router.get("/workspaces/{ws_id}/search")
+def search(ws_id: str, q: str, k: int = 5) -> dict:
+    ws = _annual(ws_id)
+    hits = ws.index.search(q, k=min(max(k, 1), 10))
+    return {"query": q, "retriever": ws.index.stats()["retriever"], "passages": [passage(c, s) for c, s in hits]}
+
+
+class ExternalIn(BaseModel):
+    facts: list[dict[str, Any]]
+
+
+@router.post("/workspaces/{ws_id}/external")
+def add_external(ws_id: str, body: ExternalIn) -> dict:
+    ws = _annual(ws_id)
+    try:
+        facts = annual_external.validate_facts(body.facts)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    ws.external.extend(facts)
+    ws.commentary = None
+    ws.audit.record("user", "external.added", f"{len(facts)} external fact(s) added",
+                    agent="reviewer", details={"facts": facts})
+    return serialize(ws)
+
+
+@router.delete("/workspaces/{ws_id}/external/{fact_id}")
+def remove_external(ws_id: str, fact_id: str) -> dict:
+    ws = _annual(ws_id)
+    before = len(ws.external)
+    ws.external = [x for x in ws.external if x["id"] != fact_id]
+    if len(ws.external) == before:
+        raise HTTPException(404, "Unknown external fact")
+    ws.audit.record("user", "external.removed", f"External fact {fact_id} removed", agent="reviewer")
+    return serialize(ws)
 
 
 class AssistantIn(BaseModel):
@@ -217,6 +318,8 @@ def assistant(ws_id: str, body: AssistantIn) -> dict:
     ws = _ws(ws_id)
     if ws.model is None:
         raise HTTPException(409, "Run the deterministic calculation first")
+    if isinstance(ws, AnnualWorkspace):
+        return annual_assistant.answer(ws, body.question, body.history)
     provider = llm.get_provider()
     note = None
     try:
